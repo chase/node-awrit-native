@@ -5,7 +5,37 @@ on:
     branches: ["main"]
 
 jobs:
+  check-release:
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Use Node.js
+      uses: actions/setup-node@v4
+
+    - name: Get package version
+      id: version
+      run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+    - name: Check if release exists
+      id: check
+      run: |
+        if gh release view v${{ steps.version.outputs.version }}; then
+          echo "Release v${{ steps.version.outputs.version }} already exists."
+          echo "should_run=false" >> $GITHUB_OUTPUT
+        else
+          echo "Release v${{ steps.version.outputs.version }} does not exist."
+        fi
   build:
+    needs: check-release
+    if: ${{ needs.check_release.outputs.should_run != 'false' }}
     permissions:
       contents: read
     strategy:
@@ -57,8 +87,7 @@ jobs:
         uses: actions/setup-node@v4
       - name: Get package version
         id: version
-        run: |
-          echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
       - name: Create release
         uses: ncipollo/release-action@v1
         with:

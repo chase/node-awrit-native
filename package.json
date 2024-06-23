@@ -5,8 +5,9 @@
   "main": "index.js",
   "types": "index.d.ts",
   "scripts": {
-    "install": "node install.js",
+    "install": "node install.mjs",
     "prebuild": "prebuildify --napi --strip",
+    "rebuild": "node-gyp-build",
     "prebuild-linux-x64": "prebuildify --tag-libc --napi --strip",
     "prebuild-darwin-x64+arm64": "prebuildify --napi --strip --arch x64+arm64"
   },
@@ -27,6 +28,7 @@
     "prebuildify": "^6.0.1"
   },
   "dependencies": {
+    "node-fetch": "^3.3.2",
     "node-gyp-build": "^4.8.1",
     "tar": "^7.4.0"
   },
