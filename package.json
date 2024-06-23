@@ -1,0 +1,36 @@
+{
+  "name": "shm-write",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "scripts": {
+    "install": "node install.js",
+    "prebuild": "prebuildify --napi --strip",
+    "prebuild-linux-x64": "prebuildify --tag-libc --napi --strip",
+    "prebuild-darwin-x64+arm64": "prebuildify --napi --strip --arch x64+arm64"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chase/node-shm-write.git"
+  },
+  "author": "",
+  "license": "BSD-3-Clause",
+  "gypfile": true,
+  "bugs": {
+    "url": "https://github.com/chase/node-shm-write/issues"
+  },
+  "homepage": "https://github.com/chase/node-shm-write#readme",
+  "devDependencies": {
+    "node-addon-api": "^7.1.0",
+    "node-gyp": "^10.1.0",
+    "prebuildify": "^6.0.1"
+  },
+  "dependencies": {
+    "node-gyp-build": "^4.8.1",
+    "tar": "^7.4.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
