@@ -6,6 +6,7 @@ on:
 
 jobs:
   check-release:
+    name: Check if the release already exists
     permissions:
       contents: read
     env:
@@ -35,7 +36,7 @@ jobs:
         fi
   build:
     needs: check-release
-    if: ${{ needs.check_release.outputs.should_run != 'false' }}
+    if: ${{ needs.check-release.outputs.should_run != 'false' }}
     permissions:
       contents: read
     strategy:
