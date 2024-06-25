@@ -23,6 +23,6 @@ if (!existsSync(join(__dirname, "prebuilds", `${platform()}-${arch()}`))) {
     })
     .catch((err) => {
       console.error(err);
-      execSync("npm run prebuild");
+      execSync("npm run rebuild");
     });
 }
