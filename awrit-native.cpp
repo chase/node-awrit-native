@@ -2,8 +2,10 @@
 #include <napi.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <termios.h>
 #include <unistd.h>
 
+#include <cerrno>
 #include <cstring>
 
 Napi::Value ShmWrite(const Napi::CallbackInfo& info) {
@@ -56,7 +58,7 @@ Napi::Value ShmUnlink(const Napi::CallbackInfo& info) {
   }
 
   std::string name = info[0].As<Napi::String>().Utf8Value();
-  if (shm_unlink(name.c_str()) == -1) {
+  if (shm_unlink(name.c_str()) == -1 && errno != ENOENT) {
     Napi::Error::New(env, "Failed to unlink shared memory")
         .ThrowAsJavaScriptException();
     return env.Undefined();
@@ -65,12 +67,49 @@ Napi::Value ShmUnlink(const Napi::CallbackInfo& info) {
   return env.Undefined();
 }
 
+namespace {
+void set_raw(termios& t) {
+  t.c_iflag &=
+      ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
+  t.c_oflag &= ~OPOST;
+  t.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+  t.c_cflag &= ~(CSIZE | PARENB);
+  t.c_cflag |= CS8;
+  t.c_cc[VMIN] = 1;
+  t.c_cc[VTIME] = 0;
+}
+struct termios* get_terminal() {
+  static struct termios terminal;
+  return &terminal;
+}
+}  // namespace
+
+Napi::Value SetupTermios(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  auto* terminal = get_terminal();
+  tcgetattr(STDIN_FILENO, terminal);
+  struct termios new_terminal = *terminal;
+  set_raw(new_terminal);
+  tcsetattr(STDIN_FILENO, TCSANOW, &new_terminal);
+  return env.Undefined();
+}
+
+Napi::Value CleanupTermios(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+	tcsetattr(STDIN_FILENO, TCSANOW, get_terminal());
+  return env.Undefined();
+}
+
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set(Napi::String::New(env, "shmWrite"),
               Napi::Function::New(env, ShmWrite));
   exports.Set(Napi::String::New(env, "shmUnlink"),
               Napi::Function::New(env, ShmUnlink));
+  exports.Set(Napi::String::New(env, "setupTermios"),
+              Napi::Function::New(env, SetupTermios));
+  exports.Set(Napi::String::New(env, "cleanupTermios"),
+              Napi::Function::New(env, CleanupTermios));
   return exports;
 }
 
-NODE_API_MODULE(shm, Init)
+NODE_API_MODULE(awritnative, Init)

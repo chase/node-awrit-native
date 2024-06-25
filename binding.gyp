@@ -1,8 +1,8 @@
 {
   "targets": [
     {
-      "target_name": "shm",
-      "sources": [ "shm.cpp" ],
+      "target_name": "awrit-native",
+      "sources": [ "awrit-native.cpp" ],
       "include_dirs": [
         "<!@(node -p \"require('node-addon-api').include\")"],
       "variables": {
