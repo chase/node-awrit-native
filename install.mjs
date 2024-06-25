@@ -11,7 +11,9 @@ const __dirname = dirname(__filename);
 const pkg = JSON.parse(readFileSync(join(__dirname, "package.json"), "utf8"));
 
 const GITHUB_REPO = "chase/node-shm-write";
-const url = `https://github.com/${GITHUB_REPO}/releases/download/v${pkg.version}/${platform()}-${arch()}.tar.gz`;
+const os = platform();
+const arch_ = os === 'darwin' ? 'x64+arm64' : arch();
+const url = `https://github.com/${GITHUB_REPO}/releases/download/v${pkg.version}/${os}-${arch_}.tar.gz`;
 
 if (!existsSync(join(__dirname, "prebuilds", `${platform()}-${arch()}`))) {
   fetch(url)
