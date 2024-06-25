@@ -18,7 +18,7 @@ Napi::Value ShmWrite(const Napi::CallbackInfo& info) {
   std::string name = info[0].As<Napi::String>().Utf8Value();
   Napi::Buffer<char> buffer = info[1].As<Napi::Buffer<char>>();
 
-  int fd = shm_open(name.c_str(), O_CREAT | O_RDWR, 0666);
+  int fd = shm_open(name.c_str(), O_CREAT | O_RDWR, 0600);
   if (fd == -1) {
     Napi::Error::New(env, "Failed to open shared memory")
         .ThrowAsJavaScriptException();
