@@ -2,3 +2,4 @@ build/
 prebuilds/
 archive.tar.gz
 node_modules/
+compile_commands.json

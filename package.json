@@ -1,6 +1,6 @@
 {
   "name": "awrit-native",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "",
   "main": "index.js",
   "types": "index.d.ts",
@@ -9,7 +9,8 @@
     "prebuild": "prebuildify --napi --strip",
     "rebuild": "node-gyp-build",
     "prebuild-linux-x64": "prebuildify --tag-libc --napi --strip",
-    "prebuild-darwin-x64+arm64": "prebuildify --napi --strip --arch x64+arm64"
+    "prebuild-darwin-x64+arm64": "prebuildify --napi --strip --arch x64+arm64",
+    "clangd": "node-gyp -- configure -f=gyp.generator.compile_commands_json.py && sed -i '' 's/\\\\\"-arch x86_64\\\\\"//g;s/\\\\\"-arch arm64\\\\\"//g' build/Debug/compile_commands.json && (ln -s build/Debug/compile_commands.json || true)"
   },
   "repository": {
     "type": "git",

@@ -2,9 +2,20 @@
   "targets": [
     {
       "target_name": "awrit-native",
-      "sources": [ "awrit-native.cpp" ],
+      "sources": [
+        "tty/escape_parser.cpp",
+        "tty/input_posix.cpp",
+        "tty/kitty_keys.cpp",
+        "tty/sgr_mouse.cpp",
+        "string/string_utils.cpp",
+        "third_party/utf8_decode.cpp",
+        "awrit-native.cpp",
+      ],
       "include_dirs": [
-        "<!@(node -p \"require('node-addon-api').include\")"],
+        "<!@(node -p \"require('node-addon-api').include\")",
+        "tty",
+        ".",
+      ],
       "variables": {
         'NAPI_VERSION%': "<!(node -p \"process.versions.napi\")",
       },
