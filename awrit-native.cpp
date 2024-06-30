@@ -9,6 +9,7 @@
 #include <chrono>
 #include <cstring>
 #include <thread>
+#include <atomic>
 
 #include "escape_parser.h"
 #include "input.h"
