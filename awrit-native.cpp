@@ -23,10 +23,12 @@
 #include "sgr_mouse.h"
 
 using namespace Napi;
-Value ShmWrite(const CallbackInfo& info) {
+Value ShmWrite(const CallbackInfo &info)
+{
   Env env = info.Env();
 
-  if (info.Length() < 2 || info.Length() > 3 || !info[0].IsString() || !info[1].IsBuffer()) {
+  if (info.Length() < 2 || info.Length() > 3 || !info[0].IsString() || !info[1].IsBuffer())
+  {
     TypeError::New(env, "Expected a string and a buffer and optionally a boolean")
         .ThrowAsJavaScriptException();
     return env.Undefined();
@@ -37,27 +39,31 @@ Value ShmWrite(const CallbackInfo& info) {
   bool rgbaFix = info[2].IsBoolean() ? info[2].As<Boolean>().Value() : false;
 
   int fd = shm_open(name.c_str(), O_CREAT | O_RDWR, 0600);
-  if (fd == -1) {
+  if (fd == -1)
+  {
     Error::New(env, "Failed to open shared memory")
         .ThrowAsJavaScriptException();
     return env.Undefined();
   }
 
-  if (ftruncate(fd, buffer.Length()) == -1) {
+  if (ftruncate(fd, buffer.Length()) == -1)
+  {
     close(fd);
     Error::New(env, "Failed to set size of shared memory")
         .ThrowAsJavaScriptException();
     return env.Undefined();
   }
 
-  void* ptr = mmap(0, buffer.Length(), PROT_WRITE, MAP_SHARED, fd, 0);
-  if (ptr == MAP_FAILED) {
+  void *ptr = mmap(0, buffer.Length(), PROT_WRITE, MAP_SHARED, fd, 0);
+  if (ptr == MAP_FAILED)
+  {
     close(fd);
     Error::New(env, "Failed to map shared memory").ThrowAsJavaScriptException();
     return env.Undefined();
   }
 
-  if (rgbaFix) {
+  if (rgbaFix)
+  {
     const char *src = buffer.Data();
     size_t len = buffer.Length();
 
@@ -96,8 +102,9 @@ Value ShmWrite(const CallbackInfo& info) {
       ((char *)ptr)[i + 3] = src[i + 3]; // A
     }
 #endif
-
-  } else {
+  }
+  else
+  {
     std::memcpy(ptr, buffer.Data(), buffer.Length());
   }
 
@@ -107,16 +114,19 @@ Value ShmWrite(const CallbackInfo& info) {
   return env.Undefined();
 }
 
-Value ShmUnlink(const CallbackInfo& info) {
+Value ShmUnlink(const CallbackInfo &info)
+{
   Env env = info.Env();
 
-  if (info.Length() != 1 || !info[0].IsString()) {
+  if (info.Length() != 1 || !info[0].IsString())
+  {
     TypeError::New(env, "Expected a string").ThrowAsJavaScriptException();
     return env.Undefined();
   }
 
   std::string name = info[0].As<String>().Utf8Value();
-  if (shm_unlink(name.c_str()) == -1 && errno != ENOENT) {
+  if (shm_unlink(name.c_str()) == -1 && errno != ENOENT)
+  {
     Error::New(env, "Failed to unlink shared memory")
         .ThrowAsJavaScriptException();
     return env.Undefined();
@@ -125,14 +135,16 @@ Value ShmUnlink(const CallbackInfo& info) {
   return env.Undefined();
 }
 
-Value SetupInput(const CallbackInfo& info) {
+Value SetupInput(const CallbackInfo &info)
+{
   Env env = info.Env();
   tty::in::Setup();
   tty::keys::Enable();
   return env.Undefined();
 }
 
-Value CleanupInput(const CallbackInfo& info) {
+Value CleanupInput(const CallbackInfo &info)
+{
   Env env = info.Env();
   tty::keys::Disable();
   tty::in::Cleanup();
@@ -141,33 +153,40 @@ Value CleanupInput(const CallbackInfo& info) {
 
 static std::atomic<bool> s_quit = false;
 
-struct Event {
-  Event(tty::EscapeCodeParser::Type type_, const std::string& string_)
+struct Event
+{
+  Event(tty::EscapeCodeParser::Type type_, const std::string &string_)
       : type(type_), string(string_) {}
   const tty::EscapeCodeParser::Type type;
   const std::string string;
 };
 
-class InputEventParser final : public tty::EscapeCodeParser {
- private:
-  static Object HandleMouse(Env env, const tty::mouse::MouseEvent& event) {
+class InputEventParser final : public tty::EscapeCodeParser
+{
+private:
+  static Object HandleMouse(Env env, const tty::mouse::MouseEvent &event)
+  {
     auto obj = Object::New(env);
     obj["type"] =
         Number::New(env, static_cast<int>(tty::EscapeCodeParser::Type::Mouse));
     obj["event"] = Number::New(env, event.type);
     obj["buttons"] = Number::New(env, event.buttons);
     obj["modifiers"] = Number::New(env, event.modifiers);
-    if (event.x > -1) obj["x"] = Number::New(env, event.x);
-    if (event.y > -1) obj["y"] = Number::New(env, event.y);
+    if (event.x > -1)
+      obj["x"] = Number::New(env, event.x);
+    if (event.y > -1)
+      obj["y"] = Number::New(env, event.y);
 
     return obj;
   }
 
-  static Object HandleCSI(Env env, const std::string& csi) {
+  static Object HandleCSI(Env env, const std::string &csi)
+  {
     auto obj = Object::New(env);
 
-    const auto& [keyEvent, keyString] = tty::keys::ElectronKeyEventFromCSI(csi);
-    if (keyEvent != tty::keys::Event::Invalid) {
+    const auto &[keyEvent, keyString] = tty::keys::ElectronKeyEventFromCSI(csi);
+    if (keyEvent != tty::keys::Event::Invalid)
+    {
       obj["type"] =
           Number::New(env, static_cast<int>(tty::EscapeCodeParser::Type::Key));
       obj["event"] = Number::New(env, keyEvent);
@@ -176,7 +195,8 @@ class InputEventParser final : public tty::EscapeCodeParser {
     }
 
     const auto mc = tty::sgr_mouse::MouseEventFromCSI(csi);
-    if (mc) {
+    if (mc)
+    {
       return HandleMouse(env, *mc);
     }
 
@@ -186,34 +206,83 @@ class InputEventParser final : public tty::EscapeCodeParser {
     return obj;
   };
 
-  static void Callback(Env env, Function callback, void*, Event* event) {
+  static void Callback(Env env, Function callback, void *, Event *event)
+  {
     using Type = tty::EscapeCodeParser::Type;
     if (env != nullptr && callback != nullptr && event != nullptr &&
-        event->type != Type::None) {
-      if (event->type != Type::CSI) {
+        event->type != Type::None)
+    {
+      if (event->type == Type::Unicode)
+      {
+        auto obj = Object::New(env);
+        obj["type"] = Number::New(env, static_cast<int>(Type::Key));
+        obj["event"] = Number::New(env, static_cast<int>(tty::keys::Event::Unicode));
+        obj["code"] = String::New(env, event->string);
+        callback.Call({obj});
+      }
+      else if (event->type != Type::CSI)
+      {
         auto obj = Object::New(env);
         obj["type"] = Number::New(env, static_cast<int>(event->type));
         obj["data"] = String::New(env, event->string);
         callback.Call({obj});
-      } else {
+      }
+      else
+      {
         callback.Call({HandleCSI(env, event->string)});
       }
     }
 
-    if (event != nullptr) delete event;
+    if (event != nullptr)
+      delete event;
   }
 
   using TSFN = TypedThreadSafeFunction<void, Event, InputEventParser::Callback>;
   TSFN callback_;
 
- protected:
-  bool Handle(Type type, const std::string& data) override {
+protected:
+  bool Handle(Type type, const std::string &data) override
+  {
     callback_.BlockingCall(new Event(type, data));
     return true;
   };
 
- public:
-  explicit InputEventParser(const CallbackInfo& info) {
+  bool HandleUTF8Codepoint(uint32_t codepoint) override
+  {
+    std::string result;
+    if (codepoint <= 0x7F)
+    {
+      // Handle ASCII characters (0-127)
+      result.push_back(static_cast<char>(codepoint));
+    }
+    else if (codepoint <= 0x7FF)
+    {
+      // Handle 2-byte sequence (128-2047)
+      result.push_back(static_cast<char>(0xC0 | ((codepoint >> 6) & 0x1F)));
+      result.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+    }
+    else if (codepoint <= 0xFFFF)
+    {
+      // Handle 3-byte sequence (2048-65535)
+      result.push_back(static_cast<char>(0xE0 | ((codepoint >> 12) & 0x0F)));
+      result.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+      result.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+    }
+    else if (codepoint <= 0x10FFFF)
+    {
+      // Handle 4-byte sequence (65536-1114111)
+      result.push_back(static_cast<char>(0xF0 | ((codepoint >> 18) & 0x07)));
+      result.push_back(static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F)));
+      result.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+      result.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+    }
+    callback_.BlockingCall(new Event(tty::EscapeCodeParser::Type::Unicode, result));
+    return true;
+  }
+
+public:
+  explicit InputEventParser(const CallbackInfo &info)
+  {
     // clang-format off
     callback_ = TSFN::New(
 				info.Env(),
@@ -227,28 +296,36 @@ class InputEventParser final : public tty::EscapeCodeParser {
   }
 };
 
-Value ListenForInput(const CallbackInfo& info) {
+Value ListenForInput(const CallbackInfo &info)
+{
   Env env = info.Env();
   int wait = 10;
-  if (info.Length() > 1 && info[1].IsNumber()) {
+  if (info.Length() > 1 && info[1].IsNumber())
+  {
     wait = info[1].As<Number>().Int32Value();
     return env.Undefined();
   }
-  auto* parser = new InputEventParser(info);
-  std::thread([wait, parser]() {
-    while (!s_quit) {
-      if (!tty::in::WaitForReady(wait)) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(wait));
-        continue;
-      }
-      parser->Parse(tty::in::Read());
-    }
-		delete parser;
-  }).detach();
-  return Napi::Function::New(env, [](const CallbackInfo&) { s_quit = true; });
+  auto *parser = new InputEventParser(info);
+  std::thread([wait, parser]()
+              {
+                while (!s_quit)
+                {
+                  if (!tty::in::WaitForReady(wait))
+                  {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(wait));
+                    continue;
+                  }
+                  parser->Parse(tty::in::Read());
+                }
+                // delete parser;
+              })
+      .detach();
+  return Napi::Function::New(env, [](const CallbackInfo &)
+                             { s_quit = true; });
 }
 
-Object Init(Env env, Object exports) {
+Object Init(Env env, Object exports)
+{
   exports.Set(String::New(env, "shmWrite"), Function::New(env, ShmWrite));
   exports.Set(String::New(env, "shmUnlink"), Function::New(env, ShmUnlink));
   exports.Set(String::New(env, "setupInput"), Function::New(env, SetupInput));

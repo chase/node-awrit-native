@@ -138,7 +138,8 @@ std::optional<uint16_t> csi_number_to_functional_number(uint16_t csi) {
       {127, 57347},
   };
   auto result = map.find(csi);
-  if (result == map.end()) return {};
+  if (result == map.end())
+    return {};
 
   return result->second;
 }
@@ -149,7 +150,8 @@ std::optional<uint16_t> letter_trailer_to_csi_number(char trailer) {
       {'F', 8},     {'H', 7},     {'P', 11},    {'Q', 12},    {'S', 14},
   };
   auto result = map.find(trailer);
-  if (result == map.end()) return {};
+  if (result == map.end())
+    return {};
 
   return result->second;
 };
@@ -165,7 +167,8 @@ std::vector<int> get_sub_sections(std::string_view section,
     } else {
       const std::from_chars_result conv =
           std::from_chars(p[i].begin(), p[i].end(), result[i]);
-      if (conv.ec != std::errc()) return {};
+      if (conv.ec != std::errc())
+        return {};
     }
   }
 
@@ -174,12 +177,18 @@ std::vector<int> get_sub_sections(std::string_view section,
 
 std::u16string modifiers_to_string(Modifiers::Type m) {
   std::u16string result;
-  if (m & Modifiers::Meta) result += u"meta+";
-  if (m & Modifiers::Ctrl) result += u"ctrl+";
-  if (m & Modifiers::Shift) result += u"shift+";
-  if (m & Modifiers::Alt) result += u"alt+";
-  if (m & Modifiers::CapsLock) result += u"capslock+";
-  if (m & Modifiers::NumLock) result += u"numlock+";
+  if (m & Modifiers::Meta)
+    result += u"meta+";
+  if (m & Modifiers::Ctrl)
+    result += u"ctrl+";
+  if (m & Modifiers::Shift)
+    result += u"shift+";
+  if (m & Modifiers::Alt)
+    result += u"alt+";
+  if (m & Modifiers::CapsLock)
+    result += u"capslock+";
+  if (m & Modifiers::NumLock)
+    result += u"numlock+";
   return result;
 }
 
@@ -206,18 +215,22 @@ std::pair<Event::Type, std::u16string> ElectronKeyEventFromCSI(
 
   std::vector<std::string_view> sections = string::split(csi, ';');
   std::vector<int> first_section;
-  if (sections.size() > 0) first_section = get_sub_sections(sections[0], 0);
+  if (sections.size() > 0)
+    first_section = get_sub_sections(sections[0], 0);
   std::vector<int> second_section;
-  if (sections.size() > 1) second_section = get_sub_sections(sections[1], 1);
+  if (sections.size() > 1)
+    second_section = get_sub_sections(sections[1], 1);
   std::vector<int> third_section;
-  if (sections.size() > 2) third_section = get_sub_sections(sections[2], 0);
+  if (sections.size() > 2)
+    third_section = get_sub_sections(sections[2], 0);
 
   uint32_t keynum = 0;
   auto maybe_csi_number = letter_trailer_to_csi_number(last_char);
   if (maybe_csi_number) {
     keynum = maybe_csi_number.value();
   } else {
-    if (first_section.empty()) return {event, keyCode};
+    if (first_section.empty())
+      return {event, keyCode};
     keynum = first_section[0];
   }
 
@@ -232,8 +245,8 @@ std::pair<Event::Type, std::u16string> ElectronKeyEventFromCSI(
       modifiers += u"isautorepeat+";
     }
   } else {
-		event = Event::Down;
-	}
+    event = Event::Down;
+  }
 
   if (keynum == 13) {
     keyCode = last_char == 'u' ? u"enter" : u"f3";
@@ -254,7 +267,8 @@ std::pair<Event::Type, std::u16string> ElectronKeyEventFromCSI(
       // codepoints (usually on key up)
       if (third_section.size() > 0) {
         event = Event::Unicode;
-        for (auto codepoint : third_section) keyCode.push_back(codepoint);
+        for (auto codepoint : third_section)
+          keyCode.push_back(codepoint);
       } else {
         event = Event::Invalid;
       }

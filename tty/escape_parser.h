@@ -34,6 +34,7 @@ class EscapeCodeParser {
     APC = 6,
     Key = 7,
     Mouse = 8,
+    Unicode = 9,
   };
 
  protected:

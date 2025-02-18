@@ -36,7 +36,9 @@ void Setup() {
   tcsetattr(STDIN_FILENO, TCSANOW, &new_terminal);
 }
 
-void Cleanup() { tcsetattr(STDIN_FILENO, TCSANOW, get_terminal()); }
+void Cleanup() {
+  tcsetattr(STDIN_FILENO, TCSANOW, get_terminal());
+}
 
 bool WaitForReady(int timeout_ms) {
   const int kTimeout_us = timeout_ms * 1000;
@@ -54,7 +56,8 @@ std::string Read() {
   static std::array<char, kBufferSize> buffer;
   size_t actual_size = read(STDIN_FILENO, buffer.data(), kBufferSize);
 
-  if (actual_size == 0) return {};
+  if (actual_size == 0)
+    return {};
 
   return {buffer.data(), actual_size};
 }

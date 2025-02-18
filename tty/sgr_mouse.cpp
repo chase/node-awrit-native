@@ -29,17 +29,22 @@ std::optional<mouse::MouseEvent> MouseEventFromCSI(
   csi.remove_suffix(1);
   csi.remove_prefix(1);
 
-  if (csi.empty()) return {};
+  if (csi.empty())
+    return {};
   auto parts = string::split(csi, ';');
 
-  if (parts.size() != 3) return {};
+  if (parts.size() != 3)
+    return {};
   auto desc = string::strtoint(parts[0]);
-  if (!desc) return {};
+  if (!desc)
+    return {};
 
   auto x = string::strtoint(parts[1]);
-  if (!x) return {};
+  if (!x)
+    return {};
   auto y = string::strtoint(parts[2]);
-  if (!y) return {};
+  if (!y)
+    return {};
 
   MouseEvent result;
   result.x = *x;

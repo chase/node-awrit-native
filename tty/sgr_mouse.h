@@ -11,6 +11,7 @@
 namespace tty::sgr_mouse {
 
 void Enable();
-std::optional<mouse::MouseEvent> MouseEventFromCSI(std::string_view csi) noexcept;
+std::optional<mouse::MouseEvent> MouseEventFromCSI(
+    std::string_view csi) noexcept;
 
 }  // namespace tty::sgr_mouse

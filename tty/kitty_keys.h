@@ -27,13 +27,7 @@ enum Type : int {
 }  // namespace Modifiers
 
 namespace Event {
-enum Type : int {
-	Invalid = 0,
-  Down = 1,
-  Repeat = 2,
-  Up = 3,
-	Unicode = 4
-};
+enum Type : int { Invalid = 0, Down = 1, Repeat = 2, Up = 3, Unicode = 4 };
 }
 
 namespace Flags {
@@ -50,6 +44,7 @@ enum Type : int {
 void Enable();
 void Disable();
 
-std::pair<Event::Type, std::u16string> ElectronKeyEventFromCSI(std::string_view csi) noexcept;
+std::pair<Event::Type, std::u16string> ElectronKeyEventFromCSI(
+    std::string_view csi) noexcept;
 
 }  // namespace tty::keys

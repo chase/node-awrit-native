@@ -66,16 +66,19 @@ bool EscapeCodeParser::Parse(char ch) {
     case State::ST_or_BEL:
     case State::ESC_ST:
     case State::C1_ST:
-      if (!Byte(ch)) return false;
+      if (!Byte(ch))
+        return false;
   }
 
   return true;
 }
 
 bool EscapeCodeParser::Parse(std::string_view buffer) {
-	if (buffer.empty()) return true;
+  if (buffer.empty())
+    return true;
   for (char ch : buffer) {
-    if (!Parse(ch)) return false;
+    if (!Parse(ch))
+      return false;
   }
   return true;
 }
@@ -124,7 +127,8 @@ bool EscapeCodeParser::Byte(uint8_t ch) {
     case State::CSI:
       return CSI(ch);
     case State::ST_or_BEL:
-      if (ch == 0x7) return EscapeCode();
+      if (ch == 0x7)
+        return EscapeCode();
       [[fallthrough]];
     case State::ST:
       return ST(ch);
@@ -225,13 +229,15 @@ bool EscapeCodeParser::ESC_ST(uint8_t ch) {
   } else {
     state_ = State::ST;
     buffer_ += '\x1b';
-    if (ch != 0x1b) buffer_ += ch;
+    if (ch != 0x1b)
+      buffer_ += ch;
   }
   return true;
 }
 
 bool EscapeCodeParser::C1_ST(uint8_t ch) {
-  if (ch == 0x9c) return EscapeCode();
+  if (ch == 0x9c)
+    return EscapeCode();
 
   state_ = State::ST;
   buffer_ += '\xc2';
@@ -241,9 +247,9 @@ bool EscapeCodeParser::C1_ST(uint8_t ch) {
 
 bool EscapeCodeParser::EscapeCode() {
   bool result = true;
-	if (handler_ != Type::None) {
-		Handle(handler_, buffer_);
-	}
+  if (handler_ != Type::None) {
+    Handle(handler_, buffer_);
+  }
   Reset();
   return result;
 }
