@@ -19,8 +19,8 @@
       "variables": {
         'NAPI_VERSION%': "<!(node -p \"process.versions.napi\")",
       },
-      "cflags!": [ "-fno-exceptions" ],
-      "cflags_cc!": [ "-fno-exceptions" ],
+      "cflags!": [ "-fno-exceptions", "-std=c++17" ],
+      "cflags_cc!": [ "-fno-exceptions", "-std=c++17" ],
       "defines": [ "NAPI_DISABLE_CPP_EXCEPTIONS" ],
       "conditions": [
         ['NAPI_VERSION!=""', { 'defines': ['NAPI_VERSION=<@(NAPI_VERSION)'] } ],
