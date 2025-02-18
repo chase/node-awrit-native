@@ -32,10 +32,21 @@
           "xcode_settings": {
             # -fvisibility=hidden
             "GCC_SYMBOLS_PRIVATE_EXTERN": "YES",
+            'ALWAYS_SEARCH_USER_PATHS': 'NO',
+            'GCC_CW_ASM_SYNTAX': 'NO',                # No -fasm-blocks
+            'GCC_DYNAMIC_NO_PIC': 'NO',               # No -mdynamic-no-pic
+                                                      # (Equivalent to -fPIC)
+            'GCC_ENABLE_CPP_EXCEPTIONS': 'NO',        # -fno-exceptions
+            'GCC_ENABLE_CPP_RTTI': 'NO',              # -fno-rtti
+            'GCC_ENABLE_PASCAL_STRINGS': 'NO',        # No -mpascal-strings
+            'PREBINDING': 'NO',                       # No -Wl,-prebind
 
             # Set minimum target version because we're building on newer
-            # Same as https://github.com/nodejs/node/blob/v10.0.0/common.gypi#L416
-            "MACOSX_DEPLOYMENT_TARGET": "10.7",
+            # Same as https://github.com/nodejs/node/blob/v20.18.3/common.gypi#L597
+            "MACOSX_DEPLOYMENT_TARGET": "10.15",
+            'GCC_VERSION': 'com.apple.compilers.llvm.clang.1_0',
+            'CLANG_CXX_LANGUAGE_STANDARD': 'gnu++17',  # -std=gnu++17
+            'CLANG_CXX_LIBRARY': 'libc++',
 
             # Build universal binary to support M1 (Apple silicon)
             "OTHER_CFLAGS": [
