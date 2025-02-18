@@ -28,7 +28,7 @@
           "libraries": ["-lrt"]
         }],
         ["OS == 'mac'", {
-          "cflags+": ["-fvisibility=hidden"],
+          "cflags+": ["-fvisibility=hidden", "-std=c++17" ],
           "xcode_settings": {
             # -fvisibility=hidden
             "GCC_SYMBOLS_PRIVATE_EXTERN": "YES",
