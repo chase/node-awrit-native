@@ -25,7 +25,9 @@
       "conditions": [
         ['NAPI_VERSION!=""', { 'defines': ['NAPI_VERSION=<@(NAPI_VERSION)'] } ],
         ["OS == 'linux'", {
-          "libraries": ["-lrt"]
+          "libraries": ["-lrt"],
+          "cflags+": ["-mavx2", "-mssse3", "-std=c++17"],
+          "cflags_cc+": ["-mavx2", "-mssse3", "-std=c++17"]
         }],
         ["OS == 'mac'", {
           "cflags+": ["-fvisibility=hidden", "-std=c++17" ],
@@ -50,8 +52,8 @@
 
             # Build universal binary to support M1 (Apple silicon)
             "OTHER_CFLAGS": [
-              "-arch x86_64",
-              "-arch arm64"
+              "-arch x86_64", "-mavx2", "-mssse3",
+              "-arch arm64", "-mfpu=neon"
             ],
             "OTHER_LDFLAGS": [
               "-arch x86_64",

@@ -11,6 +11,12 @@
 #include <thread>
 #include <atomic>
 
+#if defined(__x86_64__) || defined(_M_X64)
+#include <immintrin.h>
+#elif defined(__aarch64__) || defined(_M_ARM64)
+#include <arm_neon.h>
+#endif
+
 #include "escape_parser.h"
 #include "input.h"
 #include "kitty_keys.h"
@@ -20,14 +26,15 @@ using namespace Napi;
 Value ShmWrite(const CallbackInfo& info) {
   Env env = info.Env();
 
-  if (info.Length() != 2 || !info[0].IsString() || !info[1].IsBuffer()) {
-    TypeError::New(env, "Expected a string and a buffer")
+  if (info.Length() < 2 || info.Length() > 3 || !info[0].IsString() || !info[1].IsBuffer()) {
+    TypeError::New(env, "Expected a string and a buffer and optionally a boolean")
         .ThrowAsJavaScriptException();
     return env.Undefined();
   }
 
   std::string name = info[0].As<String>().Utf8Value();
   Buffer<char> buffer = info[1].As<Buffer<char>>();
+  bool rgbaFix = info[2].IsBoolean() ? info[2].As<Boolean>().Value() : false;
 
   int fd = shm_open(name.c_str(), O_CREAT | O_RDWR, 0600);
   if (fd == -1) {
@@ -50,7 +57,50 @@ Value ShmWrite(const CallbackInfo& info) {
     return env.Undefined();
   }
 
-  std::memcpy(ptr, buffer.Data(), buffer.Length());
+  if (rgbaFix) {
+    const char *src = buffer.Data();
+    size_t len = buffer.Length();
+
+#if defined(__AVX2__)
+    const __m256i shuffle_mask = _mm256_set_epi8(31, 28, 29, 30, 27, 24, 25, 26, 23, 20, 21, 22, 19, 16, 17, 18,
+                                                 15, 12, 13, 14, 11, 8, 9, 10, 7, 4, 5, 6, 3, 0, 1, 2);
+    for (size_t i = 0; i + 31 < len; i += 32)
+    {
+      __m256i pixels = _mm256_loadu_si256((__m256i *)(src + i));
+      __m256i shuffled = _mm256_shuffle_epi8(pixels, shuffle_mask);
+      _mm256_storeu_si256((__m256i *)((char *)ptr + i), shuffled);
+    }
+#elif defined(__SSSE3__)
+    const __m128i shuffle_mask = _mm_set_epi8(15, 12, 13, 14, 11, 8, 9, 10, 7, 4, 5, 6, 3, 0, 1, 2);
+    for (size_t i = 0; i + 15 < len; i += 16)
+    {
+      __m128i pixels = _mm_loadu_si128((__m128i *)(src + i));
+      __m128i shuffled = _mm_shuffle_epi8(pixels, shuffle_mask);
+      _mm_storeu_si128((__m128i *)((char *)ptr + i), shuffled);
+    }
+#elif defined(__ARM_NEON)
+    const uint8x16_t shuffle_mask = {2, 1, 0, 3, 6, 5, 4, 7, 10, 9, 8, 11, 14, 13, 12, 15};
+    for (size_t i = 0; i + 15 < len; i += 16)
+    {
+      uint8x16_t pixels = vld1q_u8((uint8_t *)(src + i));
+      uint8x16_t shuffled = vqtbl1q_u8(pixels, shuffle_mask);
+      vst1q_u8((uint8_t *)((char *)ptr + i), shuffled);
+    }
+#else
+    // Fallback scalar implementation
+    for (size_t i = 0; i + 3 < len; i += 4)
+    {
+      ((char *)ptr)[i] = src[i + 2];     // R
+      ((char *)ptr)[i + 1] = src[i + 1]; // G
+      ((char *)ptr)[i + 2] = src[i];     // B
+      ((char *)ptr)[i + 3] = src[i + 3]; // A
+    }
+#endif
+
+  } else {
+    std::memcpy(ptr, buffer.Data(), buffer.Length());
+  }
+
   munmap(ptr, buffer.Length());
   close(fd);
 
