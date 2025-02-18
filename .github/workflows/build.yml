@@ -44,7 +44,7 @@ jobs:
         include:
           - os: ubuntu-latest
             build-group: linux-x64
-          - os: macos-12
+          - os: macos-latest
             build-group: darwin-x64+arm64
     name: Build ${{ matrix.build-group }}
     env:
