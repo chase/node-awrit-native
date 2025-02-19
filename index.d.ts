@@ -64,28 +64,46 @@ export declare enum MouseButton {
 
 export type InputEvent =
 	| {
-			type: EscapeType.Key;
-			event: KeyEvent;
-			code: string;
-	  }
+		type: EscapeType.Key;
+		event: KeyEvent;
+		modifiers: Array<
+			| "shift"
+			| "alt"
+			| "ctrl"
+			| "left"
+			| "right"
+			| "control"
+			| "meta"
+			| "command"
+			| "cmd"
+			| "isKeypad"
+			| "isAutoRepeat"
+			| "leftButtonDown"
+			| "middleButtonDown"
+			| "rightButtonDown"
+			| "capsLock"
+			| "numLock"
+		>;
+		code: string;
+	}
 	| {
-			type: EscapeType.Mouse;
-			event: MouseEvent;
-			buttons: number;
-			modfiers: number;
-			x?: number;
-			y?: number;
-	  }
+		type: EscapeType.Mouse;
+		event: MouseEvent;
+		buttons: number;
+		modfiers: number;
+		x?: number;
+		y?: number;
+	}
 	| {
-			type:
-				| EscapeType.CSI
-				| EscapeType.OSC
-				| EscapeType.DCS
-				| EscapeType.PM
-				| EscapeType.SOS
-				| EscapeType.APC;
-			data: string;
-	  };
+		type:
+		| EscapeType.CSI
+		| EscapeType.OSC
+		| EscapeType.DCS
+		| EscapeType.PM
+		| EscapeType.SOS
+		| EscapeType.APC;
+		data: string;
+	};
 
 /**
  * Listens for input events at intervalMs, defaults to 10ms

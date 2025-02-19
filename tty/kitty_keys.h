@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <vector>
 
 // see https://sw.kovidgoyal.net/kitty/keyboard-protocol/
 namespace tty::keys {
@@ -44,7 +45,7 @@ enum Type : int {
 void Enable();
 void Disable();
 
-std::pair<Event::Type, std::u16string> ElectronKeyEventFromCSI(
+std::pair<Event::Type, std::vector<std::u16string>> ElectronKeyEventFromCSI(
     std::string_view csi) noexcept;
 
 }  // namespace tty::keys

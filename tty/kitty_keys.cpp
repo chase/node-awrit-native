@@ -112,18 +112,18 @@ std::u16string_view functional_key_number_to_electron_string(
       {57438, u"volumedown"},
       {57439, u"volumeup"},
       {57440, u"volumemute"},
-      {57441, u"left+shift"},
-      {57442, u"left+control"},
-      {57443, u"left+alt"},
-      {57444, u"left+meta"},
-      {57445, u"left+meta"},
-      {57446, u"left+meta"},
-      {57447, u"right+shift"},
-      {57448, u"right+control"},
-      {57449, u"right+alt"},
-      {57450, u"right+meta"},
-      {57451, u"right+meta"},
-      {57452, u"right+meta"},
+      {57441, u"shift"},
+      {57442, u"control"},
+      {57443, u"alt"},
+      {57444, u"meta"},
+      {57445, u"meta"},
+      {57446, u"meta"},
+      {57447, u"shift"},
+      {57448, u"control"},
+      {57449, u"alt"},
+      {57450, u"meta"},
+      {57451, u"meta"},
+      {57452, u"meta"},
   };
   auto result = map.find(key_number);
   return result == map.end() ? u"" : result->second;
@@ -175,32 +175,32 @@ std::vector<int> get_sub_sections(std::string_view section,
   return result;
 }
 
-std::u16string modifiers_to_string(Modifiers::Type m) {
-  std::u16string result;
+std::vector<std::u16string> modifiers_to_strings(Modifiers::Type m) {
+  std::vector<std::u16string> result;
   if (m & Modifiers::Meta)
-    result += u"meta+";
+    result.push_back(u"meta");
   if (m & Modifiers::Ctrl)
-    result += u"ctrl+";
+    result.push_back(u"ctrl");
   if (m & Modifiers::Shift)
-    result += u"shift+";
+    result.push_back(u"shift");
   if (m & Modifiers::Alt)
-    result += u"alt+";
+    result.push_back(u"alt");
   if (m & Modifiers::CapsLock)
-    result += u"capslock+";
+    result.push_back(u"capslock");
   if (m & Modifiers::NumLock)
-    result += u"numlock+";
+    result.push_back(u"numlock");
   return result;
 }
 
 }  // namespace
 
-std::pair<Event::Type, std::u16string> ElectronKeyEventFromCSI(
+std::pair<Event::Type, std::vector<std::u16string>> ElectronKeyEventFromCSI(
     std::string_view csi) noexcept {
   std::u16string keyCode;
-  std::u16string modifiers;
+  std::vector<std::u16string> result;
   Event::Type event(Event::Invalid);
   if (csi.empty()) {
-    return {event, keyCode};
+    return {event, result};
   }
 
   char last_char = csi.back();
@@ -210,7 +210,7 @@ std::pair<Event::Type, std::u16string> ElectronKeyEventFromCSI(
 
   if (possible_trailers.find(last_char) == std::string_view::npos ||
       (last_char == '~' && (csi == "200" || csi == "201"))) {
-    return {event, keyCode};
+    return {event, result};
   }
 
   std::vector<std::string_view> sections = string::split(csi, ';');
@@ -230,19 +230,20 @@ std::pair<Event::Type, std::u16string> ElectronKeyEventFromCSI(
     keynum = maybe_csi_number.value();
   } else {
     if (first_section.empty())
-      return {event, keyCode};
+      return {event, result};
     keynum = first_section[0];
   }
 
   if (second_section.size() > 0) {
-    modifiers += modifiers_to_string(
+    auto new_modifiers = modifiers_to_strings(
         static_cast<Modifiers::Type>(second_section[0] - 1));
+    result.insert(result.end(), new_modifiers.begin(), new_modifiers.end());
   }
 
   if (second_section.size() > 1) {
     event = static_cast<Event::Type>(second_section[1]);
     if (event == Event::Repeat) {
-      modifiers += u"isautorepeat+";
+      result.push_back(u"isautorepeat");
     }
   } else {
     event = Event::Down;
@@ -256,6 +257,11 @@ std::pair<Event::Type, std::u16string> ElectronKeyEventFromCSI(
       keynum = functional_number.value();
     }
     keyCode = functional_key_number_to_electron_string(keynum);
+    if (keynum >= 57441 && keynum <= 57446) {
+      result.push_back(u"left");
+    } else if (keynum >= 57447 && keynum <= 57452) {
+      result.push_back(u"right");
+    }
   }
 
   if (keyCode.empty()) {
@@ -279,6 +285,8 @@ std::pair<Event::Type, std::u16string> ElectronKeyEventFromCSI(
     event = Event::Down;
   }
 
-  return {event, modifiers + keyCode};
+  result.push_back(keyCode);
+
+  return {event, result};
 }
 }  // namespace tty::keys

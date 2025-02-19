@@ -190,7 +190,13 @@ private:
       obj["type"] =
           Number::New(env, static_cast<int>(tty::EscapeCodeParser::Type::Key));
       obj["event"] = Number::New(env, keyEvent);
-      obj["code"] = String::New(env, keyString);
+      auto modifiers = Array::New(env);
+      for (size_t index = 0; index < keyString.size() - 1; ++index)
+      {
+        modifiers.Set(index, String::New(env, keyString[index]));
+      }
+      obj["modifiers"] = modifiers;
+      obj["code"] = String::New(env, keyString[keyString.size() - 1]);
       return obj;
     }
 
