@@ -17,123 +17,238 @@
 #include <arm_neon.h>
 #endif
 
+#if defined(__AVX2__)
+constexpr size_t ALIGNMENT = 32;  // AVX2 alignment
+#elif defined(__ARM_NEON)
+constexpr size_t ALIGNMENT = 16;  // NEON alignment
+#else
+constexpr size_t ALIGNMENT = 4;   // Default alignment
+#endif
+
 #include "escape_parser.h"
 #include "input.h"
 #include "kitty_keys.h"
 #include "sgr_mouse.h"
 
+#define BYTES_PER_PIXEL 4
+
 using namespace Napi;
-Value ShmWrite(const CallbackInfo &info)
-{
-  Env env = info.Env();
 
-  if (info.Length() < 2 || info.Length() > 3 || !info[0].IsString() || !info[1].IsBuffer())
-  {
-    TypeError::New(env, "Expected a string and a buffer and optionally a boolean")
-        .ThrowAsJavaScriptException();
+// Helper function to align size to the required SIMD alignment
+inline size_t align_size(size_t size, size_t alignment) {
+  return (size + alignment - 1) & ~(alignment - 1);
+}
+
+class ShmGraphicBuffer : public Napi::ObjectWrap<ShmGraphicBuffer> {
+public:
+  static Napi::Object Init(Napi::Env env, Napi::Object exports) {
+    Napi::Function func = DefineClass(env, "ShmGraphicBuffer", {
+      InstanceMethod("resize", &ShmGraphicBuffer::Resize),
+      InstanceMethod("write", &ShmGraphicBuffer::Write),
+      InstanceMethod("close", &ShmGraphicBuffer::Close),
+      InstanceMethod("unlink", &ShmGraphicBuffer::Unlink),
+    });
+
+    Napi::FunctionReference* constructor = new Napi::FunctionReference();
+    *constructor = Napi::Persistent(func);
+    env.SetInstanceData(constructor);
+
+    exports.Set("ShmGraphicBuffer", func);
+    return exports;
+  }
+
+  ShmGraphicBuffer(const Napi::CallbackInfo& info) : Napi::ObjectWrap<ShmGraphicBuffer>(info) {
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 3 || !info[0].IsString() || !info[1].IsNumber() || !info[2].IsNumber()) {
+      Napi::TypeError::New(env, "Expected a string and two numbers").ThrowAsJavaScriptException();
+      return;
+    }
+
+    this->name = info[0].As<Napi::String>().Utf8Value();
+    this->width = info[1].As<Napi::Number>().Uint32Value();
+    this->height = info[2].As<Napi::Number>().Uint32Value();
+    this->fd = -1;
+    
+    // Create the shared memory
+    this->fd = shm_open(this->name.c_str(), O_CREAT | O_RDWR, 0600);
+    if (this->fd == -1) {
+      Napi::Error::New(env, "Failed to open shared memory").ThrowAsJavaScriptException();
+      return;
+    }
+
+    // Calculate aligned size
+    size_t rawSize = this->width * this->height * BYTES_PER_PIXEL;
+    size_t alignedSize = align_size(rawSize, ALIGNMENT);
+    
+    // Set the size of the shared memory
+    if (ftruncate(this->fd, alignedSize) == -1) {
+      close(this->fd);
+      this->fd = -1;
+      Napi::Error::New(env, "Failed to set size of shared memory").ThrowAsJavaScriptException();
+      return;
+    }
+  }
+
+  ~ShmGraphicBuffer() {
+    if (this->fd != -1) {
+      close(this->fd);
+      this->fd = -1;
+      shm_unlink(this->name.c_str());
+    }
+  }
+
+private:
+  Napi::Value Resize(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsNumber()) {
+      Napi::TypeError::New(env, "Expected two numbers").ThrowAsJavaScriptException();
+      return env.Undefined();
+    }
+
+    this->width = info[0].As<Napi::Number>().Uint32Value();
+    this->height = info[1].As<Napi::Number>().Uint32Value();
+
+    // Calculate aligned size
+    size_t rawSize = this->width * this->height * BYTES_PER_PIXEL;
+    size_t alignedSize = align_size(rawSize, ALIGNMENT);
+    
+    if (ftruncate(this->fd, alignedSize) == -1) {
+      Napi::Error::New(env, "Failed to resize shared memory").ThrowAsJavaScriptException();
+      return env.Undefined();
+    }
+
     return env.Undefined();
   }
 
-  std::string name = info[0].As<String>().Utf8Value();
-  Buffer<char> buffer = info[1].As<Buffer<char>>();
-  bool rgbaFix = info[2].IsBoolean() ? info[2].As<Boolean>().Value() : false;
+  Napi::Value Write(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
 
-  int fd = shm_open(name.c_str(), O_CREAT | O_RDWR, 0600);
-  if (fd == -1)
-  {
-    Error::New(env, "Failed to open shared memory")
-        .ThrowAsJavaScriptException();
-    return env.Undefined();
-  }
+    if (info.Length() < 1 || !info[0].IsBuffer()) {
+      Napi::TypeError::New(env, "Expected a buffer").ThrowAsJavaScriptException();
+      return env.Undefined();
+    }
 
-  if (ftruncate(fd, buffer.Length()) == -1)
-  {
-    close(fd);
-    Error::New(env, "Failed to set size of shared memory")
-        .ThrowAsJavaScriptException();
-    return env.Undefined();
-  }
+    Napi::Buffer<char> buffer = info[0].As<Napi::Buffer<char>>();
+    
+    // Default dirty region is the entire buffer
+    uint32_t dirtyX = 0;
+    uint32_t dirtyY = 0;
+    uint32_t dirtyWidth = this->width;
+    uint32_t dirtyHeight = this->height;
+    
+    // Check for dirty rectangle parameter
+    if (info.Length() > 1 && info[1].IsObject()) {
+      Napi::Object dirtyRect = info[1].As<Napi::Object>();
+      
+      if (dirtyRect.Has("x") && dirtyRect.Get("x").IsNumber()) {
+        dirtyX = dirtyRect.Get("x").As<Napi::Number>().Uint32Value();
+      }
+      
+      if (dirtyRect.Has("y") && dirtyRect.Get("y").IsNumber()) {
+        dirtyY = dirtyRect.Get("y").As<Napi::Number>().Uint32Value();
+      }
+      
+      if (dirtyRect.Has("width") && dirtyRect.Get("width").IsNumber()) {
+        dirtyWidth = dirtyRect.Get("width").As<Napi::Number>().Uint32Value();
+      }
+      
+      if (dirtyRect.Has("height") && dirtyRect.Get("height").IsNumber()) {
+        dirtyHeight = dirtyRect.Get("height").As<Napi::Number>().Uint32Value();
+      }
+      
+      // Ensure dirty region is within bounds
+      if (dirtyX >= this->width) dirtyX = 0;
+      if (dirtyY >= this->height) dirtyY = 0;
+      if (dirtyX + dirtyWidth > this->width) dirtyWidth = this->width - dirtyX;
+      if (dirtyY + dirtyHeight > this->height) dirtyHeight = this->height - dirtyY;
+    }
+    
+    // Calculate aligned size for the entire buffer
+    size_t rawSize = this->width * this->height * BYTES_PER_PIXEL;
+    size_t alignedSize = align_size(rawSize, ALIGNMENT);
+    
+    // Map the shared memory
+    void* ptr = mmap(0, alignedSize, PROT_WRITE, MAP_SHARED, this->fd, 0);
+    if (ptr == MAP_FAILED) {
+      Napi::Error::New(env, "Failed to map shared memory").ThrowAsJavaScriptException();
+      return env.Undefined();
+    }
 
-  void *ptr = mmap(0, buffer.Length(), PROT_WRITE, MAP_SHARED, fd, 0);
-  if (ptr == MAP_FAILED)
-  {
-    close(fd);
-    Error::New(env, "Failed to map shared memory").ThrowAsJavaScriptException();
-    return env.Undefined();
-  }
-
-  if (rgbaFix)
-  {
-    const char *src = buffer.Data();
-    size_t len = buffer.Length();
-
+    // Apply RGBA fix (swap R and B channels) only for the dirty region
+    const char* src = buffer.Data();
+    
+    // Calculate offsets and strides
+    size_t rowStride = this->width * BYTES_PER_PIXEL;
+    size_t dirtyOffset = (dirtyY * this->width + dirtyX) * BYTES_PER_PIXEL;
+    
+    // Align the dirty region width to the appropriate SIMD boundary
+    // This ensures we always process complete SIMD blocks
+    size_t dirtyRowSize = ((dirtyWidth * BYTES_PER_PIXEL + ALIGNMENT - 1) / ALIGNMENT) * ALIGNMENT;
+    
+    // Process each row in the dirty region
+    for (uint32_t y = 0; y < dirtyHeight; y++) {
+      size_t rowOffset = dirtyOffset + y * rowStride;
+      
 #if defined(__AVX2__)
-    const __m256i shuffle_mask = _mm256_set_epi8(31, 28, 29, 30, 27, 24, 25, 26, 23, 20, 21, 22, 19, 16, 17, 18,
-                                                 15, 12, 13, 14, 11, 8, 9, 10, 7, 4, 5, 6, 3, 0, 1, 2);
-    for (size_t i = 0; i + 31 < len; i += 32)
-    {
-      __m256i pixels = _mm256_loadu_si256((__m256i *)(src + i));
-      __m256i shuffled = _mm256_shuffle_epi8(pixels, shuffle_mask);
-      _mm256_storeu_si256((__m256i *)((char *)ptr + i), shuffled);
-    }
-#elif defined(__SSSE3__)
-    const __m128i shuffle_mask = _mm_set_epi8(15, 12, 13, 14, 11, 8, 9, 10, 7, 4, 5, 6, 3, 0, 1, 2);
-    for (size_t i = 0; i + 15 < len; i += 16)
-    {
-      __m128i pixels = _mm_loadu_si128((__m128i *)(src + i));
-      __m128i shuffled = _mm_shuffle_epi8(pixels, shuffle_mask);
-      _mm_storeu_si128((__m128i *)((char *)ptr + i), shuffled);
-    }
+      const __m256i shuffle_mask = _mm256_set_epi8(31, 28, 29, 30, 27, 24, 25, 26, 23, 20, 21, 22, 19, 16, 17, 18,
+                                                15, 12, 13, 14, 11, 8, 9, 10, 7, 4, 5, 6, 3, 0, 1, 2);
+      for (size_t i = rowOffset; i < rowOffset + dirtyRowSize; i += 32) {
+        __m256i pixels = _mm256_loadu_si256((__m256i*)(src + i));
+        __m256i shuffled = _mm256_shuffle_epi8(pixels, shuffle_mask);
+        _mm256_storeu_si256((__m256i*)((char*)ptr + i), shuffled);
+      }
 #elif defined(__ARM_NEON)
-    const uint8x16_t shuffle_mask = {2, 1, 0, 3, 6, 5, 4, 7, 10, 9, 8, 11, 14, 13, 12, 15};
-    for (size_t i = 0; i + 15 < len; i += 16)
-    {
-      uint8x16_t pixels = vld1q_u8((uint8_t *)(src + i));
-      uint8x16_t shuffled = vqtbl1q_u8(pixels, shuffle_mask);
-      vst1q_u8((uint8_t *)((char *)ptr + i), shuffled);
-    }
+      const uint8x16_t shuffle_mask = {2, 1, 0, 3, 6, 5, 4, 7, 10, 9, 8, 11, 14, 13, 12, 15};
+      for (size_t i = rowOffset; i < rowOffset + dirtyRowSize; i += 16) {
+        uint8x16_t pixels = vld1q_u8((uint8_t*)(src + i));
+        uint8x16_t shuffled = vqtbl1q_u8(pixels, shuffle_mask);
+        vst1q_u8((uint8_t*)((char*)ptr + i), shuffled);
+      }
 #else
-    // Fallback scalar implementation
-    for (size_t i = 0; i + 3 < len; i += 4)
-    {
-      ((char *)ptr)[i] = src[i + 2];     // R
-      ((char *)ptr)[i + 1] = src[i + 1]; // G
-      ((char *)ptr)[i + 2] = src[i];     // B
-      ((char *)ptr)[i + 3] = src[i + 3]; // A
-    }
+      // Fallback scalar implementation for the dirty region
+      for (size_t i = rowOffset; i < rowOffset + dirtyRowSize; i += 4) {
+        ((char*)ptr)[i] = src[i + 2];     // R
+        ((char*)ptr)[i + 1] = src[i + 1]; // G
+        ((char*)ptr)[i + 2] = src[i];     // B
+        ((char*)ptr)[i + 3] = src[i + 3]; // A
+      }
 #endif
-  }
-  else
-  {
-    std::memcpy(ptr, buffer.Data(), buffer.Length());
-  }
+    }
 
-  munmap(ptr, buffer.Length());
-  close(fd);
+    // Unmap the shared memory
+    munmap(ptr, alignedSize);
 
-  return env.Undefined();
-}
-
-Value ShmUnlink(const CallbackInfo &info)
-{
-  Env env = info.Env();
-
-  if (info.Length() != 1 || !info[0].IsString())
-  {
-    TypeError::New(env, "Expected a string").ThrowAsJavaScriptException();
     return env.Undefined();
   }
 
-  std::string name = info[0].As<String>().Utf8Value();
-  if (shm_unlink(name.c_str()) == -1 && errno != ENOENT)
-  {
-    Error::New(env, "Failed to unlink shared memory")
-        .ThrowAsJavaScriptException();
+  Napi::Value Close(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    if (this->fd != -1) {
+      close(this->fd);
+      this->fd = -1;
+    }
+
     return env.Undefined();
   }
 
-  return env.Undefined();
-}
+  Napi::Value Unlink(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    if (shm_unlink(this->name.c_str()) == -1 && errno != ENOENT) {
+      Napi::Error::New(env, "Failed to unlink shared memory").ThrowAsJavaScriptException();
+    }
+
+    return env.Undefined();
+  }
+
+  std::string name;
+  uint32_t width;
+  uint32_t height;
+  int fd;
+};
 
 Value SetupInput(const CallbackInfo &info)
 {
@@ -332,8 +447,9 @@ Value ListenForInput(const CallbackInfo &info)
 
 Object Init(Env env, Object exports)
 {
-  exports.Set(String::New(env, "shmWrite"), Function::New(env, ShmWrite));
-  exports.Set(String::New(env, "shmUnlink"), Function::New(env, ShmUnlink));
+  // Initialize the ShmGraphicBuffer class
+  ShmGraphicBuffer::Init(env, exports);
+  
   exports.Set(String::New(env, "setupInput"), Function::New(env, SetupInput));
   exports.Set(String::New(env, "cleanupInput"),
               Function::New(env, CleanupInput));

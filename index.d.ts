@@ -1,13 +1,15 @@
 /// <reference types="node">
 
-/** allocates and writes buffer to the shared memory at name, optionally applying a BGRA to RGBA fix */
-export declare function shmWrite(
-	name: string,
-	buffer: Buffer,
-	rgbaFix?: boolean,
-): void;
-/** releases the shared memory at name */
-export declare function shmUnlink(name: string): void;
+export declare class ShmGraphicBuffer {
+	constructor(name: string, width: number, height: number);
+	resize(width: number, height: number): void;
+	write(buffer: Buffer, dirty?: {
+		x: number, y: number, width: number, height: number
+	}): void;
+	close(): void;
+	unlink(): void;
+}
+
 /** sets termios attributes to allow realtime updates for key input */
 export declare function setupInput(): void;
 /** restores termios attributes to the original attributes before calling setupTermios */
