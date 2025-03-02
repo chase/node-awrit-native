@@ -5,11 +5,10 @@
 #include <termios.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <cerrno>
-#include <chrono>
 #include <cstring>
 #include <thread>
-#include <atomic>
 
 #if defined(__x86_64__) || defined(_M_X64)
 #include <immintrin.h>
@@ -22,7 +21,7 @@ constexpr size_t ALIGNMENT = 32;  // AVX2 alignment
 #elif defined(__ARM_NEON)
 constexpr size_t ALIGNMENT = 16;  // NEON alignment
 #else
-constexpr size_t ALIGNMENT = 4;   // Default alignment
+constexpr size_t ALIGNMENT = 4;  // Default alignment
 #endif
 
 #include "escape_parser.h"
@@ -35,231 +34,200 @@ constexpr size_t ALIGNMENT = 4;   // Default alignment
 using namespace Napi;
 
 // Helper function to align size to the required SIMD alignment
-inline size_t align_size(size_t size, size_t alignment) {
+constexpr size_t align_size(size_t size, size_t alignment) {
   return (size + alignment - 1) & ~(alignment - 1);
 }
 
-class ShmGraphicBuffer : public Napi::ObjectWrap<ShmGraphicBuffer> {
-public:
-  static Napi::Object Init(Napi::Env env, Napi::Object exports) {
-    Napi::Function func = DefineClass(env, "ShmGraphicBuffer", {
-      InstanceMethod("resize", &ShmGraphicBuffer::Resize),
-      InstanceMethod("write", &ShmGraphicBuffer::Write),
-      InstanceMethod("close", &ShmGraphicBuffer::Close),
-      InstanceMethod("unlink", &ShmGraphicBuffer::Unlink),
-    });
+class ShmGraphicBuffer : public ObjectWrap<ShmGraphicBuffer> {
+ public:
+  static Object Init(Napi::Env env, Object exports) {
+    Function func =
+        DefineClass(env, "ShmGraphicBuffer",
+                    {InstanceMethod("write", &ShmGraphicBuffer::Write)});
 
-    Napi::FunctionReference* constructor = new Napi::FunctionReference();
-    *constructor = Napi::Persistent(func);
+    FunctionReference* constructor = new FunctionReference();
+    *constructor = Persistent(func);
     env.SetInstanceData(constructor);
 
     exports.Set("ShmGraphicBuffer", func);
     return exports;
   }
 
-  ShmGraphicBuffer(const Napi::CallbackInfo& info) : Napi::ObjectWrap<ShmGraphicBuffer>(info) {
+  ShmGraphicBuffer(const CallbackInfo& info)
+      : ObjectWrap<ShmGraphicBuffer>(info) {
     Napi::Env env = info.Env();
 
-    if (info.Length() < 3 || !info[0].IsString() || !info[1].IsNumber() || !info[2].IsNumber()) {
-      Napi::TypeError::New(env, "Expected a string and two numbers").ThrowAsJavaScriptException();
+    if (info.Length() != 1 || !info[0].IsString()) {
+      TypeError::New(env, "Expected a string and two numbers")
+          .ThrowAsJavaScriptException();
       return;
     }
 
-    this->name = info[0].As<Napi::String>().Utf8Value();
-    this->width = info[1].As<Napi::Number>().Uint32Value();
-    this->height = info[2].As<Napi::Number>().Uint32Value();
-    this->fd = -1;
-    
-    // Create the shared memory
-    this->fd = shm_open(this->name.c_str(), O_CREAT | O_RDWR, 0600);
-    if (this->fd == -1) {
-      Napi::Error::New(env, "Failed to open shared memory").ThrowAsJavaScriptException();
-      return;
-    }
-
-    // Calculate aligned size
-    size_t rawSize = this->width * this->height * BYTES_PER_PIXEL;
-    size_t alignedSize = align_size(rawSize, ALIGNMENT);
-    
-    // Set the size of the shared memory
-    if (ftruncate(this->fd, alignedSize) == -1) {
-      close(this->fd);
-      this->fd = -1;
-      Napi::Error::New(env, "Failed to set size of shared memory").ThrowAsJavaScriptException();
-      return;
-    }
+    name = info[0].As<String>().Utf8Value();
   }
 
   ~ShmGraphicBuffer() {
-    if (this->fd != -1) {
-      close(this->fd);
-      this->fd = -1;
-      shm_unlink(this->name.c_str());
+    if (fd != -1) {
+      close(fd);
+      fd = -1;
+      shm_unlink(name.c_str());
     }
   }
 
-private:
-  Napi::Value Resize(const Napi::CallbackInfo& info) {
+ private:
+  Napi::Value Write(const CallbackInfo& info) {
     Napi::Env env = info.Env();
 
-    if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsNumber()) {
-      Napi::TypeError::New(env, "Expected two numbers").ThrowAsJavaScriptException();
+    if (info.Length() < 2 || !info[0].IsBuffer() || !info[1].IsObject()) {
+      TypeError::New(env,
+                     "Expected a buffer, sourceSize, and optionally a destRect")
+          .ThrowAsJavaScriptException();
       return env.Undefined();
     }
 
-    this->width = info[0].As<Napi::Number>().Uint32Value();
-    this->height = info[1].As<Napi::Number>().Uint32Value();
+    fd = shm_open(name.c_str(), O_CREAT | O_RDWR, 0600);
+    if (fd == -1) {
+      Error::New(env, "Failed to open shared memory")
+          .ThrowAsJavaScriptException();
+    }
 
-    // Calculate aligned size
-    size_t rawSize = this->width * this->height * BYTES_PER_PIXEL;
-    size_t alignedSize = align_size(rawSize, ALIGNMENT);
-    
-    if (ftruncate(this->fd, alignedSize) == -1) {
-      Napi::Error::New(env, "Failed to resize shared memory").ThrowAsJavaScriptException();
+    Buffer<char> buffer = info[0].As<Buffer<char>>();
+    Object sourceSize = info[1].As<Object>();
+    uint32_t sourceWidth = 0;
+    uint32_t sourceHeight = 0;
+
+    if (sourceSize.Has("width") && sourceSize.Get("width").IsNumber()) {
+      sourceWidth = sourceSize.Get("width").As<Number>().Uint32Value();
+    }
+    if (sourceSize.Has("height") && sourceSize.Get("height").IsNumber()) {
+      sourceHeight = sourceSize.Get("height").As<Number>().Uint32Value();
+    }
+    size_t alignedSize =
+        align_size(sourceWidth * sourceHeight * BYTES_PER_PIXEL, ALIGNMENT);
+
+    if (alignedSize != lastAlignedSize && ftruncate(fd, alignedSize) == -1) {
+      close(fd);
+      Error::New(env, "Failed to resize shared memory")
+          .ThrowAsJavaScriptException();
       return env.Undefined();
     }
 
-    return env.Undefined();
-  }
-
-  Napi::Value Write(const Napi::CallbackInfo& info) {
-    Napi::Env env = info.Env();
-
-    if (info.Length() < 1 || !info[0].IsBuffer()) {
-      Napi::TypeError::New(env, "Expected a buffer").ThrowAsJavaScriptException();
-      return env.Undefined();
-    }
-
-    Napi::Buffer<char> buffer = info[0].As<Napi::Buffer<char>>();
-    
     // Default dirty region is the entire buffer
     uint32_t dirtyX = 0;
     uint32_t dirtyY = 0;
-    uint32_t dirtyWidth = this->width;
-    uint32_t dirtyHeight = this->height;
-    
+    uint32_t dirtyWidth = sourceWidth;
+    uint32_t dirtyHeight = sourceHeight;
+
     // Check for dirty rectangle parameter
-    if (info.Length() > 1 && info[1].IsObject()) {
-      Napi::Object dirtyRect = info[1].As<Napi::Object>();
-      
+    if (info.Length() > 2 && info[2].IsObject()) {
+      Object dirtyRect = info[2].As<Object>();
+
       if (dirtyRect.Has("x") && dirtyRect.Get("x").IsNumber()) {
-        dirtyX = dirtyRect.Get("x").As<Napi::Number>().Uint32Value();
+        dirtyX = dirtyRect.Get("x").As<Number>().Uint32Value();
       }
-      
+
       if (dirtyRect.Has("y") && dirtyRect.Get("y").IsNumber()) {
-        dirtyY = dirtyRect.Get("y").As<Napi::Number>().Uint32Value();
+        dirtyY = dirtyRect.Get("y").As<Number>().Uint32Value();
       }
-      
+
       if (dirtyRect.Has("width") && dirtyRect.Get("width").IsNumber()) {
-        dirtyWidth = dirtyRect.Get("width").As<Napi::Number>().Uint32Value();
+        dirtyWidth = dirtyRect.Get("width").As<Number>().Uint32Value();
       }
-      
+
       if (dirtyRect.Has("height") && dirtyRect.Get("height").IsNumber()) {
         dirtyHeight = dirtyRect.Get("height").As<Napi::Number>().Uint32Value();
       }
-      
+
       // Ensure dirty region is within bounds
-      if (dirtyX >= this->width) dirtyX = 0;
-      if (dirtyY >= this->height) dirtyY = 0;
-      if (dirtyX + dirtyWidth > this->width) dirtyWidth = this->width - dirtyX;
-      if (dirtyY + dirtyHeight > this->height) dirtyHeight = this->height - dirtyY;
+      if (dirtyX >= sourceWidth)
+        dirtyX = 0;
+      if (dirtyY >= sourceHeight)
+        dirtyY = 0;
+      if (dirtyX + dirtyWidth > sourceWidth)
+        dirtyWidth = sourceWidth - dirtyX;
+      if (dirtyY + dirtyHeight > sourceHeight)
+        dirtyHeight = sourceHeight - dirtyY;
     }
-    
-    // Calculate aligned size for the entire buffer
-    size_t rawSize = this->width * this->height * BYTES_PER_PIXEL;
-    size_t alignedSize = align_size(rawSize, ALIGNMENT);
-    
+
     // Map the shared memory
     void* ptr = mmap(0, alignedSize, PROT_WRITE, MAP_SHARED, this->fd, 0);
     if (ptr == MAP_FAILED) {
-      Napi::Error::New(env, "Failed to map shared memory").ThrowAsJavaScriptException();
+      Napi::Error::New(env, "Failed to map shared memory")
+          .ThrowAsJavaScriptException();
       return env.Undefined();
     }
 
     // Apply RGBA fix (swap R and B channels) only for the dirty region
     const char* src = buffer.Data();
-    
+    char* dst = (char*)ptr;
+
     // Calculate offsets and strides
-    size_t rowStride = this->width * BYTES_PER_PIXEL;
-    size_t dirtyOffset = (dirtyY * this->width + dirtyX) * BYTES_PER_PIXEL;
-    
+    size_t rowStride = sourceWidth * BYTES_PER_PIXEL;
+    size_t dirtyOffset = dirtyX * BYTES_PER_PIXEL;
+
     // Align the dirty region width to the appropriate SIMD boundary
     // This ensures we always process complete SIMD blocks
-    size_t dirtyRowSize = ((dirtyWidth * BYTES_PER_PIXEL + ALIGNMENT - 1) / ALIGNMENT) * ALIGNMENT;
-    
+    size_t dirtyRowSize = align_size(dirtyWidth * BYTES_PER_PIXEL, ALIGNMENT);
+
     // Process each row in the dirty region
     for (uint32_t y = 0; y < dirtyHeight; y++) {
       size_t rowOffset = dirtyOffset + y * rowStride;
-      
+
 #if defined(__AVX2__)
-      const __m256i shuffle_mask = _mm256_set_epi8(31, 28, 29, 30, 27, 24, 25, 26, 23, 20, 21, 22, 19, 16, 17, 18,
-                                                15, 12, 13, 14, 11, 8, 9, 10, 7, 4, 5, 6, 3, 0, 1, 2);
+      const __m256i shuffle_mask = _mm256_set_epi8(
+          31, 28, 29, 30, 27, 24, 25, 26, 23, 20, 21, 22, 19, 16, 17, 18, 15,
+          12, 13, 14, 11, 8, 9, 10, 7, 4, 5, 6, 3, 0, 1, 2);
       for (size_t i = rowOffset; i < rowOffset + dirtyRowSize; i += 32) {
         __m256i pixels = _mm256_loadu_si256((__m256i*)(src + i));
         __m256i shuffled = _mm256_shuffle_epi8(pixels, shuffle_mask);
-        _mm256_storeu_si256((__m256i*)((char*)ptr + i), shuffled);
+        _mm256_storeu_si256((__m256i*)(dst + i), shuffled);
       }
 #elif defined(__ARM_NEON)
-      const uint8x16_t shuffle_mask = {2, 1, 0, 3, 6, 5, 4, 7, 10, 9, 8, 11, 14, 13, 12, 15};
+      const uint8x16_t shuffle_mask = {2,  1, 0, 3,  6,  5,  4,  7,
+                                       10, 9, 8, 11, 14, 13, 12, 15};
       for (size_t i = rowOffset; i < rowOffset + dirtyRowSize; i += 16) {
         uint8x16_t pixels = vld1q_u8((uint8_t*)(src + i));
         uint8x16_t shuffled = vqtbl1q_u8(pixels, shuffle_mask);
-        vst1q_u8((uint8_t*)((char*)ptr + i), shuffled);
+        vst1q_u8((uint8_t*)(dst + i), shuffled);
       }
 #else
       // Fallback scalar implementation for the dirty region
       for (size_t i = rowOffset; i < rowOffset + dirtyRowSize; i += 4) {
-        ((char*)ptr)[i] = src[i + 2];     // R
-        ((char*)ptr)[i + 1] = src[i + 1]; // G
-        ((char*)ptr)[i + 2] = src[i];     // B
-        ((char*)ptr)[i + 3] = src[i + 3]; // A
+        dst[i] = src[i + 2];      // R
+        dst[i + 1] = src[i + 1];  // G
+        dst[i + 2] = src[i];      // B
+        dst[i + 3] = src[i + 3];  // A
       }
 #endif
     }
 
     // Unmap the shared memory
     munmap(ptr, alignedSize);
+    close(fd);
 
-    return env.Undefined();
-  }
+    // Create and return a Rect object with the dirty rectangle information
+    Object result = Object::New(env);
+    result["x"] = Number::New(env, dirtyX);
+    result["y"] = Number::New(env, dirtyY);
+    result["width"] = Number::New(env, dirtyRowSize / BYTES_PER_PIXEL);
+    result["height"] = Number::New(env, dirtyHeight);
 
-  Napi::Value Close(const Napi::CallbackInfo& info) {
-    Napi::Env env = info.Env();
-
-    if (this->fd != -1) {
-      close(this->fd);
-      this->fd = -1;
-    }
-
-    return env.Undefined();
-  }
-
-  Napi::Value Unlink(const Napi::CallbackInfo& info) {
-    Napi::Env env = info.Env();
-
-    if (shm_unlink(this->name.c_str()) == -1 && errno != ENOENT) {
-      Napi::Error::New(env, "Failed to unlink shared memory").ThrowAsJavaScriptException();
-    }
-
-    return env.Undefined();
+    return result;
   }
 
   std::string name;
-  uint32_t width;
-  uint32_t height;
   int fd;
+  size_t lastAlignedSize;
 };
 
-Value SetupInput(const CallbackInfo &info)
-{
+Value SetupInput(const CallbackInfo& info) {
   Env env = info.Env();
   tty::in::Setup();
   tty::keys::Enable();
   return env.Undefined();
 }
 
-Value CleanupInput(const CallbackInfo &info)
-{
+Value CleanupInput(const CallbackInfo& info) {
   Env env = info.Env();
   tty::keys::Disable();
   tty::in::Cleanup();
@@ -268,19 +236,16 @@ Value CleanupInput(const CallbackInfo &info)
 
 static std::atomic<bool> s_quit = false;
 
-struct Event
-{
-  Event(tty::EscapeCodeParser::Type type_, const std::string &string_)
+struct Event {
+  Event(tty::EscapeCodeParser::Type type_, const std::string& string_)
       : type(type_), string(string_) {}
   const tty::EscapeCodeParser::Type type;
   const std::string string;
 };
 
-class InputEventParser final : public tty::EscapeCodeParser
-{
-private:
-  static Object HandleMouse(Env env, const tty::mouse::MouseEvent &event)
-  {
+class InputEventParser final : public tty::EscapeCodeParser {
+ private:
+  static Object HandleMouse(Env env, const tty::mouse::MouseEvent& event) {
     auto obj = Object::New(env);
     obj["type"] =
         Number::New(env, static_cast<int>(tty::EscapeCodeParser::Type::Mouse));
@@ -295,19 +260,16 @@ private:
     return obj;
   }
 
-  static Object HandleCSI(Env env, const std::string &csi)
-  {
+  static Object HandleCSI(Env env, const std::string& csi) {
     auto obj = Object::New(env);
 
-    const auto &[keyEvent, keyString] = tty::keys::ElectronKeyEventFromCSI(csi);
-    if (keyEvent != tty::keys::Event::Invalid)
-    {
+    const auto& [keyEvent, keyString] = tty::keys::ElectronKeyEventFromCSI(csi);
+    if (keyEvent != tty::keys::Event::Invalid) {
       obj["type"] =
           Number::New(env, static_cast<int>(tty::EscapeCodeParser::Type::Key));
       obj["event"] = Number::New(env, keyEvent);
       auto modifiers = Array::New(env);
-      for (size_t index = 0; index < keyString.size() - 1; ++index)
-      {
+      for (size_t index = 0; index < keyString.size() - 1; ++index) {
         modifiers.Set(index, String::New(env, keyString[index]));
       }
       obj["modifiers"] = modifiers;
@@ -316,8 +278,7 @@ private:
     }
 
     const auto mc = tty::sgr_mouse::MouseEventFromCSI(csi);
-    if (mc)
-    {
+    if (mc) {
       return HandleMouse(env, *mc);
     }
 
@@ -327,29 +288,23 @@ private:
     return obj;
   };
 
-  static void Callback(Env env, Function callback, void *, Event *event)
-  {
+  static void Callback(Env env, Function callback, void*, Event* event) {
     using Type = tty::EscapeCodeParser::Type;
     if (env != nullptr && callback != nullptr && event != nullptr &&
-        event->type != Type::None)
-    {
-      if (event->type == Type::Unicode)
-      {
+        event->type != Type::None) {
+      if (event->type == Type::Unicode) {
         auto obj = Object::New(env);
         obj["type"] = Number::New(env, static_cast<int>(Type::Key));
-        obj["event"] = Number::New(env, static_cast<int>(tty::keys::Event::Unicode));
+        obj["event"] =
+            Number::New(env, static_cast<int>(tty::keys::Event::Unicode));
         obj["code"] = String::New(env, event->string);
         callback.Call({obj});
-      }
-      else if (event->type != Type::CSI)
-      {
+      } else if (event->type != Type::CSI) {
         auto obj = Object::New(env);
         obj["type"] = Number::New(env, static_cast<int>(event->type));
         obj["data"] = String::New(env, event->string);
         callback.Call({obj});
-      }
-      else
-      {
+      } else {
         callback.Call({HandleCSI(env, event->string)});
       }
     }
@@ -361,49 +316,40 @@ private:
   using TSFN = TypedThreadSafeFunction<void, Event, InputEventParser::Callback>;
   TSFN callback_;
 
-protected:
-  bool Handle(Type type, const std::string &data) override
-  {
+ protected:
+  bool Handle(Type type, const std::string& data) override {
     callback_.BlockingCall(new Event(type, data));
     return true;
   };
 
-  bool HandleUTF8Codepoint(uint32_t codepoint) override
-  {
+  bool HandleUTF8Codepoint(uint32_t codepoint) override {
     std::string result;
-    if (codepoint <= 0x7F)
-    {
+    if (codepoint <= 0x7F) {
       // Handle ASCII characters (0-127)
       result.push_back(static_cast<char>(codepoint));
-    }
-    else if (codepoint <= 0x7FF)
-    {
+    } else if (codepoint <= 0x7FF) {
       // Handle 2-byte sequence (128-2047)
       result.push_back(static_cast<char>(0xC0 | ((codepoint >> 6) & 0x1F)));
       result.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
-    }
-    else if (codepoint <= 0xFFFF)
-    {
+    } else if (codepoint <= 0xFFFF) {
       // Handle 3-byte sequence (2048-65535)
       result.push_back(static_cast<char>(0xE0 | ((codepoint >> 12) & 0x0F)));
       result.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
       result.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
-    }
-    else if (codepoint <= 0x10FFFF)
-    {
+    } else if (codepoint <= 0x10FFFF) {
       // Handle 4-byte sequence (65536-1114111)
       result.push_back(static_cast<char>(0xF0 | ((codepoint >> 18) & 0x07)));
       result.push_back(static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F)));
       result.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
       result.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
     }
-    callback_.BlockingCall(new Event(tty::EscapeCodeParser::Type::Unicode, result));
+    callback_.BlockingCall(
+        new Event(tty::EscapeCodeParser::Type::Unicode, result));
     return true;
   }
 
-public:
-  explicit InputEventParser(const CallbackInfo &info)
-  {
+ public:
+  explicit InputEventParser(const CallbackInfo& info) {
     // clang-format off
     callback_ = TSFN::New(
 				info.Env(),
@@ -417,39 +363,31 @@ public:
   }
 };
 
-Value ListenForInput(const CallbackInfo &info)
-{
+Value ListenForInput(const CallbackInfo& info) {
   Env env = info.Env();
   int wait = 10;
-  if (info.Length() > 1 && info[1].IsNumber())
-  {
+  if (info.Length() > 1 && info[1].IsNumber()) {
     wait = info[1].As<Number>().Int32Value();
     return env.Undefined();
   }
-  auto *parser = new InputEventParser(info);
-  std::thread([wait, parser]()
-              {
-                while (!s_quit)
-                {
-                  if (!tty::in::WaitForReady(wait))
-                  {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(wait));
-                    continue;
-                  }
-                  parser->Parse(tty::in::Read());
-                }
-                // delete parser;
-              })
-      .detach();
-  return Napi::Function::New(env, [](const CallbackInfo &)
-                             { s_quit = true; });
+  auto* parser = new InputEventParser(info);
+  std::thread([wait, parser]() {
+    while (!s_quit) {
+      if (!tty::in::WaitForReady(wait)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(wait));
+        continue;
+      }
+      parser->Parse(tty::in::Read());
+    }
+    // delete parser;
+  }).detach();
+  return Napi::Function::New(env, [](const CallbackInfo&) { s_quit = true; });
 }
 
-Object Init(Env env, Object exports)
-{
+Object Init(Env env, Object exports) {
   // Initialize the ShmGraphicBuffer class
   ShmGraphicBuffer::Init(env, exports);
-  
+
   exports.Set(String::New(env, "setupInput"), Function::New(env, SetupInput));
   exports.Set(String::New(env, "cleanupInput"),
               Function::New(env, CleanupInput));

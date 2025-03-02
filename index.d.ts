@@ -1,13 +1,18 @@
 /// <reference types="node">
 
+export type Size = {
+	width: number;
+	height: number;
+};
+
+export type Rect = {
+	x: number;
+	y: number;
+} & Size;
+
 export declare class ShmGraphicBuffer {
-	constructor(name: string, width: number, height: number);
-	resize(width: number, height: number): void;
-	write(buffer: Buffer, dirty?: {
-		x: number, y: number, width: number, height: number
-	}): void;
-	close(): void;
-	unlink(): void;
+	constructor(name: string);
+	write(buffer: Buffer, sourceSize: Size, destRect?: Rect): Rect;
 }
 
 /** sets termios attributes to allow realtime updates for key input */
@@ -66,46 +71,46 @@ export declare enum MouseButton {
 
 export type InputEvent =
 	| {
-		type: EscapeType.Key;
-		event: KeyEvent;
-		modifiers: Array<
-			| "shift"
-			| "alt"
-			| "ctrl"
-			| "left"
-			| "right"
-			| "control"
-			| "meta"
-			| "command"
-			| "cmd"
-			| "isKeypad"
-			| "isAutoRepeat"
-			| "leftButtonDown"
-			| "middleButtonDown"
-			| "rightButtonDown"
-			| "capsLock"
-			| "numLock"
-		>;
-		code: string;
-	}
+			type: EscapeType.Key;
+			event: KeyEvent;
+			modifiers: Array<
+				| "shift"
+				| "alt"
+				| "ctrl"
+				| "left"
+				| "right"
+				| "control"
+				| "meta"
+				| "command"
+				| "cmd"
+				| "isKeypad"
+				| "isAutoRepeat"
+				| "leftButtonDown"
+				| "middleButtonDown"
+				| "rightButtonDown"
+				| "capsLock"
+				| "numLock"
+			>;
+			code: string;
+	  }
 	| {
-		type: EscapeType.Mouse;
-		event: MouseEvent;
-		buttons: number;
-		modfiers: number;
-		x?: number;
-		y?: number;
-	}
+			type: EscapeType.Mouse;
+			event: MouseEvent;
+			buttons: number;
+			modfiers: number;
+			x?: number;
+			y?: number;
+	  }
 	| {
-		type:
-		| EscapeType.CSI
-		| EscapeType.OSC
-		| EscapeType.DCS
-		| EscapeType.PM
-		| EscapeType.SOS
-		| EscapeType.APC;
-		data: string;
-	};
+			type:
+				| EscapeType.CSI
+				| EscapeType.OSC
+				| EscapeType.DCS
+				| EscapeType.PM
+				| EscapeType.SOS
+				| EscapeType.APC;
+			data: string;
+	  };
 
 /**
  * Listens for input events at intervalMs, defaults to 10ms
