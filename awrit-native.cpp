@@ -203,7 +203,10 @@ class ShmGraphicBuffer : public ObjectWrap<ShmGraphicBuffer> {
 
     // Unmap the shared memory
     munmap(ptr, alignedSize);
-    close(fd);
+    if (fd != -1) {
+      close(fd);
+      fd = -1;
+    }
 
     // Create and return a Rect object with the dirty rectangle information
     Object result = Object::New(env);
