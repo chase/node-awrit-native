@@ -38,6 +38,11 @@ constexpr size_t align_size(size_t size, size_t alignment) {
   return (size + alignment - 1) & ~(alignment - 1);
 }
 
+inline void safe_close(int fd) {
+  while (close(fd) != 0 && errno == EINTR)
+    ;
+}
+
 class ShmGraphicBuffer : public ObjectWrap<ShmGraphicBuffer> {
  public:
   static Object Init(Napi::Env env, Object exports) {
@@ -64,11 +69,15 @@ class ShmGraphicBuffer : public ObjectWrap<ShmGraphicBuffer> {
     }
 
     name = info[0].As<String>().Utf8Value();
+    if (name.empty()) {
+      TypeError::New(env, "Name is invalid").ThrowAsJavaScriptException();
+      return;
+    }
   }
 
   ~ShmGraphicBuffer() {
     if (fd != -1) {
-      close(fd);
+      safe_close(fd);
       fd = -1;
       shm_unlink(name.c_str());
     }
@@ -85,12 +94,6 @@ class ShmGraphicBuffer : public ObjectWrap<ShmGraphicBuffer> {
       return env.Undefined();
     }
 
-    fd = shm_open(name.c_str(), O_CREAT | O_RDWR, 0600);
-    if (fd == -1) {
-      Error::New(env, "Failed to open shared memory")
-          .ThrowAsJavaScriptException();
-    }
-
     Buffer<char> buffer = info[0].As<Buffer<char>>();
     Object sourceSize = info[1].As<Object>();
     uint32_t sourceWidth = 0;
@@ -105,8 +108,41 @@ class ShmGraphicBuffer : public ObjectWrap<ShmGraphicBuffer> {
     size_t alignedSize =
         align_size(sourceWidth * sourceHeight * BYTES_PER_PIXEL, ALIGNMENT);
 
+    if (name.empty())
+      return env.Undefined();
+    auto* name_cstr = name.c_str();
+#ifdef __APPLE__
+    // macOS can only run truncate on shared memory _once_, it needs to be
+    // unlinked first:
+    // https://github.com/apple/darwin-xnu/blob/a1babec6b135d1f35b2590a1990af3c5c5393479/bsd/kern/posix_shm.c#L523-L527
+    if (alignedSize != lastAlignedSize) {
+      if (fd != -1) {
+        safe_close(fd);
+        fd = -1;
+      }
+      shm_unlink(name_cstr);
+    }
+#endif
+    while (true) {
+      int fd_ = shm_open(name_cstr, O_CREAT | O_RDWR, 0600);
+      if (fd_ == -1 && errno == EINTR)
+        continue;
+      fd = fd_;
+      break;
+    }
+    if (fd == -1) {
+      perror("shm_open");
+      Error::New(env, "Failed to open shared memory")
+          .ThrowAsJavaScriptException();
+      return env.Undefined();
+    }
+
     if (alignedSize != lastAlignedSize && ftruncate(fd, alignedSize) == -1) {
-      close(fd);
+      perror("ftruncate");
+      if (fd != -1) {
+        safe_close(fd);
+        fd = -1;
+      }
       Error::New(env, "Failed to resize shared memory")
           .ThrowAsJavaScriptException();
       return env.Undefined();

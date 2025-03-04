@@ -56,7 +56,12 @@ std::string Read() {
   static std::array<char, kBufferSize> buffer;
   size_t actual_size = read(STDIN_FILENO, buffer.data(), kBufferSize);
 
-  if (actual_size == 0)
+#ifdef __APPLE__
+  // for some weird reason, it passes -1 for a size_t now, thanks Cupertino
+  if (actual_size == (size_t)-1)
+    return {};
+#endif
+  if (actual_size == 0 || actual_size > kBufferSize)
     return {};
 
   return {buffer.data(), actual_size};

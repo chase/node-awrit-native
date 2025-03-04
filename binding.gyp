@@ -53,7 +53,7 @@
             # Build universal binary to support M1 (Apple silicon)
             "OTHER_CFLAGS": [
               "-arch x86_64", "-mavx2", "-mssse3",
-              "-arch arm64", "-mfpu=neon"
+              "-arch arm64", "-ftree-vectorize"
             ],
             "OTHER_LDFLAGS": [
               "-arch x86_64",
